@@ -22,4 +22,5 @@ python train.py
 - How to log and visualize results
 
 ## Results
-Test accuracy: (..)
+Test accuracy: (00:38:10 | INFO    | Epoch 1/2 | train_loss=0.3590 train_acc=0.8918 | val_loss=0.1425 val_acc=0.9597 | lr=5.05e-05                     
+00:42:46 | INFO    | Epoch 2/2 | train_loss=0.1306 train_acc=0.9645 | val_loss=0.1160 val_acc=0.9682 | lr=1.00e-06  )
