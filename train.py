@@ -59,15 +59,6 @@ train_loader, val_loader, test_loader, classes = get_mnist_loaders(512)
 logger.info("Data loaded | batches: train=%d, val=%d, test=%d | classes=%d",
             len(train_loader), len(val_loader), len(test_loader), len(classes))
 
-# for xb, yb in train_loader:
-#     print(xb.shape)
-#     break
-
-# print(len(train_loader))
-# print(len(val_loader))
-# print(len(test_loader))
-
-# print(classes)
 
 class CNN(nn.Module):
     def __init__(self):
@@ -90,26 +81,14 @@ class CNN(nn.Module):
 
         self.flatten = nn.Flatten()
         
-        self.fc = nn.Linear(50176 * 2, 10)
+        self.fc = nn.Linear(128 * 7 * 7, 10)
 
     def forward(self, x):
-        x1 = self.conv1(x)
-        x2 = self.bn1(x1)
-        x3 = self.relu(x2)
-
-        x4 = self.conv2(x3)
-        x5 = self.bn2(x4)
-
-        x6 = self.dropout(x5)
-
-        x7 = self.conv3(x6)
-        x8 = self.bn3(x7)
-        x9 = self.relu(x8)
-
-        x10 = self.flatten(x9)
-        x11 = self.fc(x10)
-
-        return x11
+        x = self.pool(self.relu(self.bn1(self.conv1(x))))   # 28 -> 14
+        x = self.pool(self.relu(self.bn2(self.conv2(x))))   # 14 -> 7
+        x = self.dropout(x)
+        x = self.relu(self.bn3(self.conv3(x)))              # 7x7
+        return self.fc(self.flatten(x))
 
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -117,8 +96,8 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 model = CNN().to(device)
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.AdamW(model.parameters())
-num_epochs = 2
-scheduler = torch.optim.lr_scheduler.LinearLR(optimizer=optimizer, start_factor=0.1, end_factor=0.001, total_iters=num_epochs * len(train_loader))
+num_epochs = 5
+scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1.0, end_factor=0.01, total_iters=num_epochs * len(train_loader))
 
 num_params = sum(p.numel() for p in model.parameters())
 logger.info("Model: CNN | params=%s | device=%s", f"{num_params:,}", device)
@@ -180,6 +159,23 @@ with torch.no_grad():
     logits = model(xb)
 
 preds = logits.argmax(dim=1)
+model.eval()
+test_loss, test_correct, test_total = 0.0, 0, 0
+
+with torch.no_grad():
+    for xb, yb in test_loader:
+        xb, yb = xb.to(device), yb.to(device)
+        logits = model(xb)
+
+        test_loss += criterion(logits, yb).item() * xb.size(0)
+        test_correct += (logits.argmax(dim=1) == yb).sum().item()
+        test_total += xb.size(0)
+
+test_acc = test_correct / test_total
+logger.info("Test | loss=%.4f acc=%.4f", test_loss / test_total, test_acc)
+print(yb[:10].tolist())
+print(preds[:10].tolist())
+print((preds == yb).float().mean().item())
 
 for i in range(10):
     print(f"Təxmin: {classes[preds[i].item()]} | Həqiqi: {classes[yb[i].item()]}")
