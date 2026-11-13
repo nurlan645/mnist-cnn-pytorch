@@ -151,45 +151,30 @@ with logging_redirect_tqdm():
                     scheduler.get_last_lr()[0])
 
 logger.info("Training finished")
-model.eval()
-xb, yb = next(iter(test_loader))
-xb, yb = xb.to(device), yb.to(device)
 
-with torch.no_grad():
-    logits = model(xb)
-
-preds = logits.argmax(dim=1)
+# 1) Test: bütün test set üzərində (fərqli dəyişən adları!)
 model.eval()
 test_loss, test_correct, test_total = 0.0, 0, 0
 
 with torch.no_grad():
-    for xb, yb in test_loader:
-        xb, yb = xb.to(device), yb.to(device)
-        logits = model(xb)
+    for x_t, y_t in test_loader:
+        x_t, y_t = x_t.to(device), y_t.to(device)
+        out = model(x_t)
 
-        test_loss += criterion(logits, yb).item() * xb.size(0)
-        test_correct += (logits.argmax(dim=1) == yb).sum().item()
-        test_total += xb.size(0)
+        test_loss += criterion(out, y_t).item() * x_t.size(0)
+        test_correct += (out.argmax(dim=1) == y_t).sum().item()
+        test_total += x_t.size(0)
 
-test_acc = test_correct / test_total
-logger.info("Test | loss=%.4f acc=%.4f", test_loss / test_total, test_acc)
-print(yb[:10].tolist())
-print(preds[:10].tolist())
-print((preds == yb).float().mean().item())
+logger.info("Test | loss=%.4f acc=%.4f", test_loss / test_total, test_correct / test_total)
 
-for i in range(10):
-    print(f"Təxmin: {classes[preds[i].item()]} | Həqiqi: {classes[yb[i].item()]}")
-    
-    
-    
-import matplotlib.pyplot as plt
-
-model.eval()
+# 2) Vizuallaşdırma: yalnız 1 batch götürüb təxmin et
 xb, yb = next(iter(test_loader))
 xb, yb = xb.to(device), yb.to(device)
 
 with torch.no_grad():
     preds = model(xb).argmax(dim=1)
+
+print("Batch accuracy:", (preds == yb).float().mean().item())
 
 fig, axes = plt.subplots(2, 5, figsize=(10, 5))
 for i, ax in enumerate(axes.flatten()):
@@ -199,4 +184,5 @@ for i, ax in enumerate(axes.flatten()):
     ax.set_title(f"Təxmin: {pred} | Həqiqi: {true}", color="green" if pred == true else "red")
     ax.axis("off")
 plt.tight_layout()
+plt.savefig("predictions.png", dpi=120)
 plt.show()
