@@ -22,5 +22,5 @@ python train.py
 - How to log and visualize results
 
 ## Results
-- Test accuracy: 98.87% (5 epochs, CPU)
-- Test loss: 0.0323
+- Test accuracy: 98.94% (5 epochs, CPU)
+- Test loss: 0.0327
