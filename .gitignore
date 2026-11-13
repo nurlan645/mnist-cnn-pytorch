@@ -1,0 +1,4 @@
+train.log
+models/
+__pycache__/
+data/MNIST/
