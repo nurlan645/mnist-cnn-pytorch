@@ -1,12 +1,14 @@
+import os
 import logging
-import torch.nn as nn
-import torch
-import numpy as np
 from copy import deepcopy
+
+import torch
+import torch.nn as nn
+import matplotlib.pyplot as plt
 from tqdm import tqdm, trange
 from tqdm.contrib.logging import logging_redirect_tqdm
+
 from data.mnist import get_mnist_loaders
-import matplotlib.pyplot as plt
 
 
 logging.basicConfig(
@@ -19,45 +21,29 @@ logger = logging.getLogger(__name__)
 
 
 class EarlyStopping:
-    def __init__(self, patience = 5, delta = 1e-2):
+    def __init__(self, patience=3, delta=1e-3, path="models/best.pth"):
         self.patience = patience
         self.delta = delta
-        self.state = None
+        self.path = path
         self.best_loss = None
+        self.state = None
         self.counter = 0
-        self.last_loss = None
+        os.makedirs(os.path.dirname(path), exist_ok=True)
 
-    def check(self, loss) -> bool:
-        if self.last_loss is None:
-            self.last_loss = loss
-            return False
-
-        diff = loss - self.last_loss
-
-        if diff < self.delta:
-            self.counter += 1
-            logger.debug("EarlyStopping: diff=%.4f < delta=%.4f, counter %d/%d",
-                        diff, self.delta, self.counter, self.patience)
-
-        if self.counter >= self.patience:
-            logger.info("EarlyStopping triggered after %d checks without improvement", self.counter)
-            return True
-
-        return False
-
-    def save_best_model(self, loss, model : nn.Module):
-
-        if loss < self.best_loss or self.best_loss is None:
-            logger.info("New best loss: %s -> %.4f, saving to models/best.pth", self.best_loss, loss)
+    def step(self, loss, model: nn.Module) -> bool:
+        # Yaxşılaşma varmı? (ilk dəfə həmişə bəli)
+        if self.best_loss is None or self.best_loss - loss > self.delta:
+            logger.info("New best val_loss: %s -> %.4f", self.best_loss, loss)
             self.best_loss = loss
+            self.counter = 0
             self.state = deepcopy(model.state_dict())
-            torch.save(model.state_dict(), "models/best.pth")
+            torch.save(self.state, self.path)
+        else:
+            self.counter += 1
+            logger.info("EarlyStopping: no improvement, counter %d/%d",
+                        self.counter, self.patience)
 
-
-
-train_loader, val_loader, test_loader, classes = get_mnist_loaders(512)
-logger.info("Data loaded | batches: train=%d, val=%d, test=%d | classes=%d",
-            len(train_loader), len(val_loader), len(test_loader), len(classes))
+        return self.counter >= self.patience
 
 
 class CNN(nn.Module):
@@ -68,7 +54,6 @@ class CNN(nn.Module):
         self.bn1 = nn.BatchNorm2d(16)
 
         self.relu = nn.ReLU()
-        
         self.pool = nn.MaxPool2d(2)
 
         self.conv2 = nn.Conv2d(16, 32, 3, padding=1)
@@ -80,7 +65,6 @@ class CNN(nn.Module):
         self.bn3 = nn.BatchNorm2d(128)
 
         self.flatten = nn.Flatten()
-        
         self.fc = nn.Linear(128 * 7 * 7, 10)
 
     def forward(self, x):
@@ -91,19 +75,30 @@ class CNN(nn.Module):
         return self.fc(self.flatten(x))
 
 
+# ---------- Data ----------
+train_loader, val_loader, test_loader, classes = get_mnist_loaders(512)
+logger.info("Data loaded | batches: train=%d, val=%d, test=%d | classes=%d",
+            len(train_loader), len(val_loader), len(test_loader), len(classes))
+
+# ---------- Model ----------
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 model = CNN().to(device)
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.AdamW(model.parameters())
-num_epochs = 5
-scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1.0, end_factor=0.01, total_iters=num_epochs * len(train_loader))
+num_epochs = 15
+early_stopping = EarlyStopping(patience=3)
+scheduler = torch.optim.lr_scheduler.LinearLR(
+    optimizer,
+    start_factor=1.0,
+    end_factor=0.01,
+    total_iters=num_epochs * len(train_loader),
+)
 
 num_params = sum(p.numel() for p in model.parameters())
 logger.info("Model: CNN | params=%s | device=%s", f"{num_params:,}", device)
 
-
-
+# ---------- Training ----------
 # logging_redirect_tqdm routes log lines through tqdm.write so they don't break the progress bars
 with logging_redirect_tqdm():
     for epoch in trange(num_epochs, desc="Epochs"):
@@ -150,9 +145,16 @@ with logging_redirect_tqdm():
                     epoch + 1, num_epochs, train_loss, train_acc, val_loss, val_acc,
                     scheduler.get_last_lr()[0])
 
+        if early_stopping.step(val_loss, model):
+            logger.info("Early stopping at epoch %d", epoch + 1)
+            break
+
 logger.info("Training finished")
 
-# 1) Test: bütün test set üzərində (fərqli dəyişən adları!)
+# Ən yaxşı val loss olan çəkiləri (weights) geri yüklə
+model.load_state_dict(early_stopping.state)
+
+# ---------- Test: bütün test set üzərində ----------
 model.eval()
 test_loss, test_correct, test_total = 0.0, 0, 0
 
@@ -167,7 +169,7 @@ with torch.no_grad():
 
 logger.info("Test | loss=%.4f acc=%.4f", test_loss / test_total, test_correct / test_total)
 
-# 2) Vizuallaşdırma: yalnız 1 batch götürüb təxmin et
+# ---------- Vizuallaşdırma: 1 batch ----------
 xb, yb = next(iter(test_loader))
 xb, yb = xb.to(device), yb.to(device)
 
